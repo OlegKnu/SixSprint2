@@ -15,17 +15,33 @@ type Handler struct {
 	Logger *log.Logger
 }
 
+func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
+	f, err := os.Open("index.html")
+	if err != nil {
+		h.Logger.Println("Ошибка открытия index.html:", err)
+		http.Error(w, "Внутренняя ошибка сервера", http.StatusInternalServerError)
+		return
+	}
+	defer f.Close()
+
+	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	if _, err := io.Copy(w, f); err != nil {
+		h.Logger.Println("Ошибка отправки index.html:", err)
+	}
+}
+
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	if err := r.ParseMultipartForm(10 << 20); err != nil {
+	err := r.ParseMultipartForm(10 << 20)
+	if err != nil {
 		h.Logger.Println("Ошибка парсинга формы:", err)
 		http.Error(w, "Ошибка парсинга формы", http.StatusInternalServerError)
 		return
 	}
 
-	file, header, err := r.FormFile("uploadfile")
+	file, header, err := r.FormFile("myFile")
 	if err != nil {
 		h.Logger.Println("Ошибка получения файла из формы:", err)
-		http.Error(w, "Ошибка получения файла из формы: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Ошибка получения файла из формы", http.StatusInternalServerError)
 		return
 	}
 	defer file.Close()
@@ -40,36 +56,27 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	converted, err := service.Convert(string(data))
 	if err != nil {
 		h.Logger.Println("Ошибка конвертации:", err)
-		http.Error(w, "Ошибка конвертации: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, "Ошибка конвертации", http.StatusInternalServerError)
 		return
 	}
 
-	now := time.Now().UTC().Format("20060102_150405")
 	ext := filepath.Ext(header.Filename)
-	filename := now + ext
+	filename := time.Now().UTC().Format("20060102_150405") + ext
 
-	outFile, err := createFile(filename)
+	f, err := os.Create(filename)
 	if err != nil {
 		h.Logger.Println("Ошибка создания файла:", err)
 		http.Error(w, "Ошибка создания файла", http.StatusInternalServerError)
 		return
 	}
-	defer outFile.Close()
+	defer f.Close()
 
-	_, err = outFile.Write([]byte(converted))
-	if err != nil {
+	if _, err := f.WriteString(converted); err != nil {
 		h.Logger.Println("Ошибка записи в файл:", err)
 		http.Error(w, "Ошибка записи в файл", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	_, err = w.Write([]byte(converted))
-	if err != nil {
-		h.Logger.Println("Ошибка записи ответа:", err)
-	}
-}
-
-func createFile(name string) (*os.File, error) {
-	return os.Create(name)
+	w.Write([]byte(converted))
 }
