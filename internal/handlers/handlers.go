@@ -1,14 +1,15 @@
+// internal/handlers/handlers.go
 package handlers
 
 import (
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
 	"time"
 
 	"github.com/Yandex-Practicum/go1fl-sprint6-final/internal/service"
-	"log"
 )
 
 type Handler struct {
@@ -20,8 +21,8 @@ func (h *Handler) Index(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
+	// 1. Парсим форму с лимитом 10 МБ
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
 		h.Logger.Println("Ошибка парсинга формы:", err)
 		http.Error(w, "Ошибка парсинга формы", http.StatusInternalServerError)
 		return
@@ -29,7 +30,7 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 
 	file, header, err := r.FormFile("file")
 	if err != nil {
-		h.Logger.Println("Не удалось получить файл из формы:", err)
+		h.Logger.Println("Ошибка получения файла из формы:", err)
 		http.Error(w, "Ошибка загрузки файла", http.StatusInternalServerError)
 		return
 	}
@@ -42,10 +43,10 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	result, err := service.Convert(string(data))
+	converted, err := service.Convert(string(data))
 	if err != nil {
 		h.Logger.Println("Ошибка конвертации:", err)
-		http.Error(w, "Ошибка конвертации данных", http.StatusInternalServerError)
+		http.Error(w, "Ошибка конвертации", http.StatusInternalServerError)
 		return
 	}
 
@@ -53,21 +54,20 @@ func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
 	ext := filepath.Ext(header.Filename)
 	filename := timeStr + ext
 
-	newFile, err := os.Create(filename)
+	outFile, err := os.Create(filename)
 	if err != nil {
 		h.Logger.Println("Ошибка создания файла:", err)
-		http.Error(w, "Ошибка сервера при сохранении файла", http.StatusInternalServerError)
+		http.Error(w, "Ошибка сохранения файла", http.StatusInternalServerError)
 		return
 	}
-	defer newFile.Close()
+	defer outFile.Close()
 
-	_, err = newFile.WriteString(result)
-	if err != nil {
+	if _, err := outFile.WriteString(converted); err != nil {
 		h.Logger.Println("Ошибка записи в файл:", err)
-		http.Error(w, "Ошибка сервера при записи файла", http.StatusInternalServerError)
+		http.Error(w, "Ошибка записи файла", http.StatusInternalServerError)
 		return
 	}
 
 	w.WriteHeader(http.StatusOK)
-	_, _ = w.Write([]byte(result))
+	w.Write([]byte(converted))
 }
