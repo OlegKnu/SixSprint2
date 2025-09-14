@@ -1,8 +1,8 @@
 package handlers
 
 import (
-	"html/template"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -11,32 +11,20 @@ import (
 	"github.com/Yandex-Practicum/go1fl-sprint6-final/internal/service"
 )
 
-func IndexHandler(w http.ResponseWriter, r *http.Request) {
-	tmpl, err := template.ParseFiles("index.html")
-	if err != nil {
-		http.Error(w, "Ошибка загрузки шаблона: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	err = tmpl.Execute(w, nil)
-	if err != nil {
-		http.Error(w, "Ошибка отображения шаблона: "+err.Error(), http.StatusInternalServerError)
-	}
+type Handler struct {
+	Logger *log.Logger
 }
 
-func UploadHandler(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost {
-		http.Error(w, "Метод не поддерживается", http.StatusMethodNotAllowed)
-		return
-	}
-
-	err := r.ParseMultipartForm(10 << 20)
-	if err != nil {
-		http.Error(w, "Ошибка парсинга формы: "+err.Error(), http.StatusInternalServerError)
+func (h *Handler) Upload(w http.ResponseWriter, r *http.Request) {
+	if err := r.ParseMultipartForm(10 << 20); err != nil {
+		h.Logger.Println("Ошибка парсинга формы:", err)
+		http.Error(w, "Ошибка парсинга формы", http.StatusInternalServerError)
 		return
 	}
 
 	file, header, err := r.FormFile("uploadfile")
 	if err != nil {
+		h.Logger.Println("Ошибка получения файла из формы:", err)
 		http.Error(w, "Ошибка получения файла из формы: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -44,32 +32,44 @@ func UploadHandler(w http.ResponseWriter, r *http.Request) {
 
 	data, err := io.ReadAll(file)
 	if err != nil {
-		http.Error(w, "Ошибка чтения файла: "+err.Error(), http.StatusInternalServerError)
+		h.Logger.Println("Ошибка чтения файла:", err)
+		http.Error(w, "Ошибка чтения файла", http.StatusInternalServerError)
 		return
 	}
 
-	result, err := service.Convert(string(data))
+	converted, err := service.Convert(string(data))
 	if err != nil {
+		h.Logger.Println("Ошибка конвертации:", err)
 		http.Error(w, "Ошибка конвертации: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
+	now := time.Now().UTC().Format("20060102_150405")
 	ext := filepath.Ext(header.Filename)
-	filename := time.Now().UTC().Format("20060102_150405") + ext
+	filename := now + ext
 
-	outFile, err := os.Create(filename)
+	outFile, err := createFile(filename)
 	if err != nil {
-		http.Error(w, "Ошибка создания файла: "+err.Error(), http.StatusInternalServerError)
+		h.Logger.Println("Ошибка создания файла:", err)
+		http.Error(w, "Ошибка создания файла", http.StatusInternalServerError)
 		return
 	}
 	defer outFile.Close()
 
-	_, err = outFile.WriteString(result)
+	_, err = outFile.Write([]byte(converted))
 	if err != nil {
-		http.Error(w, "Ошибка записи в файл: "+err.Error(), http.StatusInternalServerError)
+		h.Logger.Println("Ошибка записи в файл:", err)
+		http.Error(w, "Ошибка записи в файл", http.StatusInternalServerError)
 		return
 	}
 
-	w.Header().Set("Content-Type", "text/plain; charset=utf-8")
-	_, _ = w.Write([]byte(result))
+	w.WriteHeader(http.StatusOK)
+	_, err = w.Write([]byte(converted))
+	if err != nil {
+		h.Logger.Println("Ошибка записи ответа:", err)
+	}
+}
+
+func createFile(name string) (*os.File, error) {
+	return os.Create(name)
 }
